@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GitHub Repo Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<style>
+  :root {
+    --bg: #fafaf8;
+    --card: #ffffff;
+    --border: #e5e4e0;
+    --text: #2b2b28;
+    --muted: #7a7a74;
+    --accent: #4a6fa5;
+    --accent-soft: #eef2f7;
+    --chip: #f1f1ee;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.55;
+    padding: 32px 20px 64px;
+  }
+  .wrap { max-width: 960px; margin: 0 auto; }
+  header.page { margin-bottom: 28px; }
+  header.page h1 { font-size: 1.7rem; font-weight: 650; letter-spacing: -0.01em; }
+  header.page p { color: var(--muted); margin-top: 4px; font-size: 0.95rem; }
+
+  section { margin-bottom: 40px; }
+  .sec-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 12px; }
+  .sec-num {
+    background: var(--accent); color: #fff; font-size: 0.75rem; font-weight: 600;
+    width: 24px; height: 24px; border-radius: 6px; display: inline-flex;
+    align-items: center; justify-content: center; flex-shrink: 0;
+  }
+  .sec-head h2 { font-size: 1.15rem; font-weight: 600; }
+  .sec-head span.hint { color: var(--muted); font-size: 0.85rem; }
+
+  .card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 10px; padding: 20px;
+  }
+
+  /* Section 1: Import */
+  .upload-area {
+    border: 2px dashed var(--border); border-radius: 8px;
+    padding: 28px 20px; text-align: center; color: var(--muted);
+    cursor: pointer; transition: border-color .15s, background .15s;
+  }
+  .upload-area:hover, .upload-area.drag { border-color: var(--accent); background: var(--accent-soft); }
+  .upload-area strong { color: var(--text); }
+  .file-input { display: none; }
+  .import-note { font-size: 0.85rem; color: var(--muted); margin-top: 10px; }
+  .status { margin-top: 10px; font-size: 0.85rem; color: var(--accent); min-height: 1.2em; }
+  .status.error { color: #b0533a; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 600; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.03em; }
+  td a { color: var(--accent); text-decoration: none; }
+  td a:hover { text-decoration: underline; }
+  .cat-chip {
+    display: inline-block; background: var(--chip); border-radius: 999px;
+    padding: 2px 10px; font-size: 0.78rem; white-space: nowrap;
+  }
+  .table-scroll { overflow-x: auto; margin-top: 14px; }
+  .empty-note { color: var(--muted); font-size: 0.88rem; padding: 8px 0; }
+
+  /* Section 2: Categories */
+  .cat-buttons { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+  .cat-btn {
+    background: var(--chip); border: 1px solid transparent; border-radius: 999px;
+    padding: 6px 14px; font-size: 0.85rem; cursor: pointer; color: var(--text);
+    transition: background .15s, border-color .15s;
+  }
+  .cat-btn:hover { border-color: var(--accent); }
+  .cat-btn.active { background: var(--accent); color: #fff; }
+  .cat-btn .count { opacity: 0.75; margin-left: 4px; font-size: 0.8rem; }
+
+  /* Section 3: Search */
+  .search-row { display: flex; gap: 8px; }
+  .search-row input {
+    flex: 1; padding: 10px 14px; border: 1px solid var(--border); border-radius: 8px;
+    font-size: 0.95rem; color: var(--text); background: #fff;
+  }
+  .search-row input:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+  .search-row button {
+    padding: 10px 16px; border: none; border-radius: 8px; background: var(--chip);
+    color: var(--muted); cursor: pointer; font-size: 0.85rem;
+  }
+  .search-row button:hover { color: var(--text); }
+  .match-score {
+    display: inline-block; font-size: 0.75rem; color: var(--accent);
+    background: var(--accent-soft); border-radius: 6px; padding: 2px 8px; margin-left: 8px;
+  }
+  .why { color: var(--muted); font-size: 0.82rem; margin-top: 4px; }
+  footer.note { color: var(--muted); font-size: 0.8rem; text-align: center; margin-top: 8px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="page">
+    <h1>GitHub Repo Dashboard</h1>
+    <p>Upload a CSV or Excel list of repositories, sort them into categories, and search for the best match.</p>
+  </header>
+
+  <!-- 1. Import Repos -->
+  <section id="section-import">
+    <div class="sec-head">
+      <span class="sec-num">1</span>
+      <h2>Import Repos</h2>
+      <span class="hint">CSV or Excel (.xlsx) with columns: name, url, category, description</span>
+    </div>
+    <div class="card">
+      <div class="upload-area" id="dropZone">
+        <strong>Click to choose a file</strong> or drag &amp; drop it here<br>
+        <small>Accepted: .csv, .xlsx</small>
+        <input type="file" class="file-input" id="fileInput" accept=".csv,.xlsx,.xls">
+      </div>
+      <div class="status" id="importStatus"></div>
+      <p class="import-note">The first 10 rows are previewed below. Your data stays on this page only — nothing is uploaded or saved.</p>
+      <div class="table-scroll">
+        <table id="previewTable">
+          <thead>
+            <tr><th>Repository</th><th>Category</th><th>Description</th></tr>
+          </thead>
+          <tbody id="previewBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2. Category Sorter -->
+  <section id="section-categories">
+    <div class="sec-head">
+      <span class="sec-num">2</span>
+      <h2>Category Sorter</h2>
+      <span class="hint">Pick a category to focus on matching repos</span>
+    </div>
+    <div class="card">
+      <div class="cat-buttons" id="catButtons"></div>
+      <div id="catCount" class="empty-note"></div>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr><th>Repository</th><th>Category</th><th>Description</th></tr>
+          </thead>
+          <tbody id="catBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3. Smart Search -->
+  <section id="section-search">
+    <div class="sec-head">
+      <span class="sec-num">3</span>
+      <h2>Smart Search</h2>
+      <span class="hint">Type what you need — best matches appear first</span>
+    </div>
+    <div class="card">
+      <div class="search-row">
+        <input type="text" id="searchInput" placeholder="e.g. flood monitoring, Malay NLP, e-wallet…">
+        <button id="clearSearch" type="button">Clear</button>
+      </div>
+      <div id="searchCount" class="empty-note"></div>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr><th>Repository</th><th>Category</th><th>Description</th></tr>
+          </thead>
+          <tbody id="searchResults"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <footer class="note">Sample entries are illustrative only. Everything runs locally in your browser; nothing is saved between visits.</footer>
+</div>
+
+<script>
+"use strict";
+
+// ---------- Sample data (made up, Malaysia-specific) ----------
+const SAMPLE_REPOS = [
+  {
+    name: "monsoon-watch-my",
+    url: "https://github.com/example-lab/monsoon-watch-my",
+    category: "Data & Analytics",
+    description: "Community dashboard for visualising Malaysian rainfall and flood-prone area data by state."
+  },
+  {
+    name: "bm-text-cleaner",
+    url: "https://github.com/example-lab/bm-text-cleaner",
+    category: "Language Tools",
+    description: "Malay (Bahasa Melayu) text normalisation library for handling colloquial spellings and manglish phrases."
+  },
+  {
+    name: "kampung-mart-pos",
+    url: "https://github.com/example-lab/kampung-mart-pos",
+    category: "Commerce",
+    description: "Lightweight point-of-sale starter kit for small neighbourhood shops, with SST line-item labels."
+  }
+];
+
+// ---------- State ----------
+let repos = SAMPLE_REPOS.map((r, i) => ({ ...r, id: "s" + i }));
+let activeCategory = "All";
+let query = "";
+
+const previewBody = document.getElementById("previewBody");
+const catButtons = document.getElementById("catButtons");
+const catBody = document.getElementById("catBody");
+const catCount = document.getElementById("catCount");
+const searchInput = document.getElementById("searchInput");
+const searchResults = document.getElementById("searchResults");
+const searchCount = document.getElementById("searchCount");
+const importStatus = document.getElementById("importStatus");
+const fileInput = document.getElementById("fileInput");
+const dropZone = document.getElementById("dropZone");
+
+// ---------- Rendering ----------
+function esc(s) {
+  return String(s == null ? "" : s).replace(/[&<>"']/g, c =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function repoRow(r, scoreHtml) {
+  return `<tr>
+    <td><a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.name)}</a>${scoreHtml || ""}</td>
+    <td><span class="cat-chip">${esc(r.category)}</span></td>
+    <td>${esc(r.description)}</td>
+  </tr>`;
+}
+
+function renderPreview() {
+  const rows = repos.slice(0, 10);
+  previewBody.innerHTML = rows.map(r => repoRow(r)).join("") ||
+    `<tr><td colspan="3" class="empty-note">No repos loaded yet.</td></tr>`;
+}
+
+function renderCategories() {
+  const cats = [...new Set(repos.map(r => r.category))].sort();
+  const counts = {};
+  repos.forEach(r => { counts[r.category] = (counts[r.category] || 0) + 1; });
+  const all = `<button class="cat-btn ${activeCategory === "All" ? "active" : ""}" data-cat="All">All <span class="count">(${repos.length})</span></button>`;
+  catButtons.innerHTML = all + cats.map(c =>
+    `<button class="cat-btn ${activeCategory === c ? "active" : ""}" data-cat="${esc(c)}">${esc(c)} <span class="count">(${counts[c]})</span></button>`
+  ).join("");
+  catButtons.querySelectorAll(".cat-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      activeCategory = btn.dataset.cat;
+      renderCategories();
+      renderSearch();
+    });
+  });
+
+  const filtered = activeCategory === "All" ? repos : repos.filter(r => r.category === activeCategory);
+  catCount.textContent = `${filtered.length} repo${filtered.length === 1 ? "" : "s"} in “${activeCategory}”`;
+  catBody.innerHTML = filtered.map(r => repoRow(r)).join("") ||
+    `<tr><td colspan="3" class="empty-note">No repos in this category.</td></tr>`;
+}
+
+// ---------- Smart search ----------
+function tokenize(s) {
+  return String(s || "").toLowerCase().split(/[^a-z0-9\u00c0-\uffff]+/).filter(Boolean);
+}
+
+function scoreRepo(r, tokens) {
+  if (!tokens.length) return null;
+  const hayName = tokenize(r.name);
+  const hayCat = tokenize(r.category);
+  const hayDesc = tokenize(r.description);
+  let score = 0;
+  const hits = [];
+  for (const t of tokens) {
+    let hit = 0;
+    if (hayName.some(w => w.includes(t))) { hit += 4; }
+    if (hayCat.some(w => w.includes(t))) { hit += 2; }
+    if (hayDesc.some(w => w.includes(t))) { hit += 3; }
+    if (hit) { score += hit; hits.push(t); }
+  }
+  // partial phrase bonus across description
+  const joined = r.description.toLowerCase();
+  for (const t of tokens) { if (joined.includes(t) && !hits.includes(t)) { score += 1; hits.push(t); } }
+  return score ? { score, hits } : null;
+}
+
+function renderSearch() {
+  const tokens = tokenize(query);
+  if (!tokens.length) {
+    searchCount.textContent = `Showing all ${repos.length} repos (search is empty).`;
+    searchResults.innerHTML = repos.map(r => repoRow(r)).join("") ||
+      `<tr><td colspan="3" class="empty-note">No repos loaded yet.</td></tr>`;
+    return;
+  }
+  const scored = repos
+    .map(r => ({ r, m: scoreRepo(r, tokens) }))
+    .filter(x => x.m)
+    .sort((a, b) => b.m.score - a.m.score);
+
+  searchCount.textContent = scored.length
+    ? `${scored.length} match${scored.length === 1 ? "" : "es"} for “${query}”, best first. Category filter (“${activeCategory}”) also applies.`
+    : `No repos match “${query}” in “${activeCategory}”. Try fewer or different words.`;
+
+  const pool = activeCategory === "All" ? scored : scored.filter(x => x.r.category === activeCategory);
+  searchResults.innerHTML = pool.map(({ r, m }) =>
+    repoRow(r, `<span class="match-score">match ${m.score}</span>`)
+  ).join("") || `<tr><td colspan="3" class="empty-note">No matching repos.</td></tr>`;
+}
+
+// ---------- File import ----------
+function parseCSV(text) {
+  const rows = [];
+  let row = [], field = "", inQ = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQ) {
+      if (c === '"') {
+        if (text[i + 1] === '"') { field += '"'; i++; }
+        else inQ = false;
+      } else field += c;
+    } else if (c === '"') inQ = true;
+    else if (c === ",") { row.push(field); field = ""; }
+    else if (c === "\n" || c === "\r") {
+      if (c === "\r" && text[i + 1] === "\n") i++;
+      row.push(field); field = "";
+      if (row.some(f => f.trim() !== "")) rows.push(row);
+      row = [];
+    } else field += c;
+  }
+  row.push(field);
+  if (row.some(f => f.trim() !== "")) rows.push(row);
+  return rows;
+}
+
+function rowsToRepos(rows) {
+  if (!rows.length) return [];
+  const header = rows[0].map(h => h.trim().toLowerCase());
+  const findCol = (...names) => header.findIndex(h => names.some(n => h === n || h.includes(n)));
+  const iName = findCol("name", "repo", "title");
+  const iUrl = findCol("url", "link", "html_url");
+  const iCat = findCol("category", "cat", "topic", "group");
+  const iDesc = findCol("description", "desc", "about", "summary");
+  if (iName === -1) return null; // no recognisable name column
+  const out = [];
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i];
+    if (!r[iName] || !r[iName].trim()) continue;
+    out.push({
+      id: "u" + i,
+      name: (r[iName] || "").trim(),
+      url: iUrl > -1 ? (r[iUrl] || "").trim() : "",
+      category: iCat > -1 && (r[iCat] || "").trim() ? r[iCat].trim() : "Uncategorised",
+      description: iDesc > -1 ? (r[iDesc] || "").trim() : ""
+    });
+  }
+  return out;
+}
+
+function setStatus(msg, isError) {
+  importStatus.textContent = msg;
+  importStatus.classList.toggle("error", !!isError);
+}
+
+function handleFile(file) {
+  if (!file) return;
+  const name = file.name.toLowerCase();
+  setStatus(`Reading “${file.name}”…`);
+  if (name.endsWith(".xlsx") || name.endsWith(".xls")) {
+    if (typeof XLSX === "undefined") {
+      setStatus("Excel reading needs the SheetJS library from the CDN, which didn't load. Please use a .csv file (Excel can Save As CSV).", true);
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = e => {
+      try {
+        const wb = XLSX.read(e.target.result, { type: "array" });
+        const sheet = wb.Sheets[wb.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
+        const parsed = rowsToRepos(rows);
+        applyParsed(parsed, file.name);
+      } catch (err) {
+        setStatus(`Could not read the Excel file: ${err.message}`, true);
+      }
+    };
+    reader.onerror = () => setStatus("Could not read the file.", true);
+    reader.readAsArrayBuffer(file);
+  } else if (name.endsWith(".csv") || file.type === "text/csv") {
+    const reader = new FileReader();
+    reader.onload = e => {
+      try {
+        const parsed = rowsToRepos(parseCSV(e.target.result));
+        applyParsed(parsed, file.name);
+      } catch (err) {
+        setStatus(`Could not read the CSV: ${err.message}`, true);
+      }
+    };
+    reader.onerror = () => setStatus("Could not read the file.", true);
+    reader.readAsText(file);
+  } else {
+    setStatus("Unsupported file type — please use .csv or .xlsx.", true);
+  }
+}
+
+function applyParsed(parsed, fileName) {
+  if (parsed === null) {
+    setStatus(`Couldn't find a name/repo column in “${fileName}”. Expected a header row with columns like: name, url, category, description.`, true);
+    return;
+  }
+  if (!parsed.length) {
+    setStatus(`No repository rows found in “${fileName}”.`, true);
+    return;
+  }
+  repos = parsed;
+  activeCategory = "All";
+  query = "";
+  searchInput.value = "";
+  renderAll();
+  const truncated = parsed.length > 10 ? ` First 10 of ${parsed.length} shown in the preview.` : "";
+  setStatus(`Loaded ${parsed.length} repo${parsed.length === 1 ? "" : "s"} from “${fileName}”.${truncated}`);
+}
+
+fileInput.addEventListener("change", () => {
+  handleFile(fileInput.files[0]);
+  fileInput.value = "";
+});
+
+dropZone.addEventListener("click", () => fileInput.click());
+dropZone.addEventListener("dragover", e => { e.preventDefault(); dropZone.classList.add("drag"); });
+dropZone.addEventListener("dragleave", () => dropZone.classList.remove("drag"));
+dropZone.addEventListener("drop", e => {
+  e.preventDefault();
+  dropZone.classList.remove("drag");
+  handleFile(e.dataTransfer.files[0]);
+});
+
+// ---------- Search wiring ----------
+searchInput.addEventListener("input", () => {
+  query = searchInput.value;
+  renderSearch();
+});
+document.getElementById("clearSearch").addEventListener("click", () => {
+  searchInput.value = "";
+  query = "";
+  renderSearch();
+  searchInput.focus();
+});
+
+function renderAll() {
+  renderPreview();
+  renderCategories();
+  renderSearch();
+}
+
+renderAll();
+</script>
+</body>
+</html>
